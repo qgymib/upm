@@ -1,0 +1,10 @@
+[package]
+name = "upm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.8", features = ["derive"] }
+nix = { version = "0.29.0", features = ["fs", "user"] }
+regex = "1.10.5"
+tempfile = "3.10.1"
