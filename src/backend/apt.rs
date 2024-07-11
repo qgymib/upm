@@ -8,33 +8,93 @@ impl AptBackend {
 }
 
 impl crate::UpmBackend for AptBackend {
-    fn update(&self) -> std::io::Result<()> {
-        crate::require_privilege()?;
+    fn setup(&self) -> crate::Result<crate::BackendSetup> {
+        let child = std::process::Command::new("apt-get")
+            .arg("--version")
+            .output();
+        let child = match child {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if child.status.success() == false {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::NotFound,
+                "apt-get is not found.",
+            ));
+        }
 
-        let apt = std::process::Command::new("apt-get")
-            .arg("update")
-            .output()?;
+        let child = std::process::Command::new("apt").arg("--version").output();
+        let child = match child {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if child.status.success() == false {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::NotFound,
+                "apt is not found.",
+            ));
+        }
+
+        let setup = crate::BackendSetup {
+            privilege: crate::MethodPrivilege {
+                update: true,
+                outdate: false,
+            },
+        };
+        Ok(setup)
+    }
+
+    fn update(&self) -> crate::Result<()> {
+        let apt = std::process::Command::new("apt-get").arg("update").output();
+        let apt = match apt {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
         if apt.status.success() == false {
             let output = String::from_utf8_lossy(&apt.stderr);
-            return Err(std::io::Error::new(
+            return Err(crate::Error::new(
                 std::io::ErrorKind::Other,
-                output.to_string(),
+                output.to_string().as_str(),
             ));
         }
         Ok(())
     }
 
-    fn list_upgradable(&self) -> std::io::Result<Vec<crate::OutdateItem>> {
+    fn outdated(&self) -> crate::Result<Vec<crate::OutdateItem>> {
         let apt = std::process::Command::new("apt")
             .env("LANG", "en_US.UTF-8")
             .env("LANGUAGE", "en_US")
             .args(&["list", "--upgradable"])
-            .output()?;
+            .output();
+        let apt = match apt {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
         if apt.status.success() == false {
             let output = String::from_utf8_lossy(&apt.stderr);
-            return Err(std::io::Error::new(
+            return Err(crate::Error::new(
                 std::io::ErrorKind::Other,
-                output.to_string(),
+                output.to_string().as_str(),
             ));
         }
 

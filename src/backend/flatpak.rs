@@ -8,24 +8,61 @@ impl FlatpakBackend {
 }
 
 impl crate::UpmBackend for FlatpakBackend {
-    fn update(&self) -> std::io::Result<()> {
-        crate::require_privilege()?;
+    fn setup(&self) -> crate::Result<crate::BackendSetup> {
+        let child = std::process::Command::new("flatpak")
+            .arg("--version")
+            .output();
+        let child = match child {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if child.status.success() == false {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::NotFound,
+                "flatpak is not found.",
+            ));
+        }
 
+        let setup = crate::BackendSetup {
+            privilege: crate::MethodPrivilege {
+                update: true,
+                outdate: false,
+            },
+        };
+
+        Ok(setup)
+    }
+
+    fn update(&self) -> crate::Result<()> {
         let flatpak = std::process::Command::new("flatpak")
             .args(&["update", "--appstream"])
-            .output()?;
+            .output();
+        let flatpak = match flatpak {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
 
         if flatpak.status.success() == false {
             let output = String::from_utf8_lossy(&flatpak.stderr);
-            return Err(std::io::Error::new(
+            return Err(crate::Error::new(
                 std::io::ErrorKind::Other,
-                output.to_string(),
+                output.to_string().as_str(),
             ));
         }
         Ok(())
     }
 
-    fn list_upgradable(&self) -> std::io::Result<Vec<crate::OutdateItem>> {
+    fn outdated(&self) -> crate::Result<Vec<crate::OutdateItem>> {
         let mut ret = Vec::new();
         let updates = flatpak_remote_ls_updates()?;
         let installs = flatpak_ls()?;
@@ -57,15 +94,24 @@ struct FlatpakItem {
 ///
 /// # Returns
 /// A list of updates.
-fn flatpak_remote_ls_updates() -> std::io::Result<Vec<FlatpakItem>> {
+fn flatpak_remote_ls_updates() -> crate::Result<Vec<FlatpakItem>> {
     let flatpak = std::process::Command::new("flatpak")
         .args(&["remote-ls", "--updates"])
-        .output()?;
+        .output();
+    let flatpak = match flatpak {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string().as_str(),
+            ));
+        }
+    };
     if flatpak.status.success() == false {
         let output = String::from_utf8_lossy(&flatpak.stderr);
-        return Err(std::io::Error::new(
+        return Err(crate::Error::new(
             std::io::ErrorKind::Other,
-            output.to_string(),
+            output.to_string().as_str(),
         ));
     }
 
@@ -96,15 +142,24 @@ fn flatpak_remote_ls_updates() -> std::io::Result<Vec<FlatpakItem>> {
 ///
 /// # Returns
 /// A list of installed flatpak packages.
-fn flatpak_ls() -> std::io::Result<Vec<FlatpakItem>> {
+fn flatpak_ls() -> crate::Result<Vec<FlatpakItem>> {
     let flatpak = std::process::Command::new("flatpak")
         .args(&["list"])
-        .output()?;
+        .output();
+    let flatpak = match flatpak {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string().as_str(),
+            ));
+        }
+    };
     if flatpak.status.success() == false {
         let output = String::from_utf8_lossy(&flatpak.stderr);
-        return Err(std::io::Error::new(
+        return Err(crate::Error::new(
             std::io::ErrorKind::Other,
-            output.to_string(),
+            output.to_string().as_str(),
         ));
     }
 

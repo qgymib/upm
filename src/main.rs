@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use upm::UpmBackend;
+use upm::{backend, UpmBackend};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -16,33 +16,22 @@ struct UpmArgs {
 
 #[derive(Debug, Subcommand)]
 enum ActionMode {
-    Update,
-    Install(InstallMode),
-    Uninstall(UninstallMode),
-
-    #[command(hide = true)]
-    UpdateApt,
-    #[command(hide = true)]
-    UpdateBrew,
-    #[command(hide = true)]
-    UpdateFlatpak,
-
-    #[command(hide = true)]
-    OutdateApt,
-    #[command(hide = true)]
-    OutdateBrew,
-    #[command(hide = true)]
-    OutdateFlatpak,
+    Update(BackendName),
+    Outdated(BackendName),
+    Install(PackageName),
+    Uninstall(PackageName),
 }
 
 #[derive(Debug, Args)]
-struct InstallMode {
+struct PackageName {
+    #[arg(help = "The name of the package")]
     name: String,
 }
 
 #[derive(Debug, Args)]
-struct UninstallMode {
-    name: String,
+struct BackendName {
+    #[arg(help = "The name of the backend")]
+    name: Option<String>,
 }
 
 // fn spawn_privilege() -> std::io::Result<()> {
@@ -80,7 +69,7 @@ struct UninstallMode {
 //     Ok((cmd, file))
 // }
 
-fn list_package(pkg: &Vec<upm::OutdateItem>) -> std::io::Result<()> {
+fn list_package(pkg: &Vec<upm::OutdateItem>) -> upm::Result<()> {
     for item in pkg {
         println!(
             "{}: {} -> {}",
@@ -91,8 +80,114 @@ fn list_package(pkg: &Vec<upm::OutdateItem>) -> std::io::Result<()> {
     Ok(())
 }
 
+struct UpmInstance {
+    /// The permission of the package manager.
+    setup: Option<upm::Result<upm::BackendSetup>>,
+
+    /// The backend of the package manager.
+    backend: Box<dyn upm::UpmBackend>,
+}
+
+impl UpmInstance {
+    fn new(backend: impl UpmBackend + 'static) -> Self {
+        Self {
+            setup: None,
+            backend: Box::new(backend),
+        }
+    }
+
+    fn setup(&mut self) -> upm::Result<upm::BackendSetup> {
+        if let Some(setup) = &self.setup {
+            return setup.clone();
+        } else {
+            let setup = self.backend.setup();
+            self.setup = Some(setup.clone());
+            setup
+        }
+    }
+}
+
+type UmpBackendMap = std::collections::HashMap<String, UpmInstance>;
+
+fn do_update(backend: &mut UmpBackendMap, name: &BackendName) -> upm::Result<()> {
+    if let Some(name) = &name.name {
+        let backend = match backend.get_mut(name) {
+            Some(v) => v,
+            None => {
+                return Err(upm::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("backend '{}' not found.", name).as_str(),
+                ));
+            }
+        };
+        let setup = backend.setup()?;
+        if setup.privilege.update {
+            upm::require_privilege()?;
+        }
+        backend.backend.update()?;
+    } else {
+        let mut names = Vec::new();
+        for (name, _) in backend.iter_mut() {
+            names.push(BackendName {
+                name: Some(name.clone()),
+            });
+        }
+        for item in names {
+            do_update(backend, &item)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn do_outdate(backend: &mut UmpBackendMap, name: &BackendName) -> upm::Result<()> {
+    if let Some(name) = &name.name {
+        let backend = match backend.get_mut(name) {
+            Some(v) => v,
+            None => {
+                return Err(upm::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("backend '{}' not found.", name).as_str(),
+                ));
+            }
+        };
+        let setup = backend.setup()?;
+        if setup.privilege.outdate {
+            upm::require_privilege()?;
+        }
+        let ret = backend.backend.outdated()?;
+        list_package(&ret)?;
+    } else {
+        let mut names = Vec::new();
+        for (name, _) in backend.iter_mut() {
+            names.push(BackendName {
+                name: Some(name.clone()),
+            });
+        }
+        for item in names {
+            do_outdate(backend, &item)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     let args = UpmArgs::parse();
+
+    let mut backend_map = UmpBackendMap::new();
+    backend_map.insert(
+        "apt".to_string(),
+        UpmInstance::new(backend::apt::AptBackend::new()),
+    );
+    backend_map.insert(
+        "brew".to_string(),
+        UpmInstance::new(backend::brew::BrewBackend::new()),
+    );
+    backend_map.insert(
+        "flatpak".to_string(),
+        UpmInstance::new(backend::flatpak::FlatpakBackend::new()),
+    );
 
     // if args.privilege {
     //     if uid != 0 {
@@ -113,36 +208,13 @@ fn main() {
 
     let mode = match args.mode {
         Some(v) => v,
-        None => ActionMode::Update,
+        None => ActionMode::Update(BackendName { name: None }),
     };
 
     let ret = match mode {
-        ActionMode::UpdateApt => upm::backend::apt::AptBackend::new().update(),
-        ActionMode::UpdateBrew => upm::backend::brew::BrewBackend::new().update(),
-        ActionMode::UpdateFlatpak => upm::backend::flatpak::FlatpakBackend::new().update(),
-
-        ActionMode::OutdateApt => {
-            let pkgs = upm::backend::apt::AptBackend::new().list_upgradable();
-            match pkgs {
-                Ok(v) => list_package(&v),
-                Err(e) => Err(e),
-            }
-        }
-        ActionMode::OutdateBrew => {
-            let pkgs = upm::backend::brew::BrewBackend::new().list_upgradable();
-            match pkgs {
-                Ok(v) => list_package(&v),
-                Err(e) => Err(e),
-            }
-        }
-        ActionMode::OutdateFlatpak => {
-            let pkgs = upm::backend::flatpak::FlatpakBackend::new().list_upgradable();
-            match pkgs {
-                Ok(v) => list_package(&v),
-                Err(e) => Err(e),
-            }
-        }
-        _ => Err(std::io::Error::new(
+        ActionMode::Update(v) => do_update(&mut backend_map, &v),
+        ActionMode::Outdated(v) => do_outdate(&mut backend_map, &v),
+        _ => Err(upm::Error::new(
             std::io::ErrorKind::NotFound,
             "not implementation.",
         )),

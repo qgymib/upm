@@ -8,29 +8,74 @@ impl BrewBackend {
 }
 
 impl crate::UpmBackend for BrewBackend {
-    fn update(&self) -> std::io::Result<()> {
-        let brew = std::process::Command::new("brew").arg("update").output()?;
+    fn setup(&self) -> crate::Result<crate::BackendSetup> {
+        let child = std::process::Command::new("brew").arg("--version").output();
+        let child = match child {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if child.status.success() == false {
+            return Err(crate::Error::new(
+                std::io::ErrorKind::NotFound,
+                "brew is not found.",
+            ));
+        }
+
+        let setup = crate::BackendSetup {
+            privilege: crate::MethodPrivilege {
+                update: false,
+                outdate: false,
+            },
+        };
+        Ok(setup)
+    }
+
+    fn update(&self) -> crate::Result<()> {
+        let brew = std::process::Command::new("brew").arg("update").output();
+        let brew = match brew {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
         if brew.status.success() == false {
             let output = String::from_utf8_lossy(&brew.stderr);
-            return Err(std::io::Error::new(
+            return Err(crate::Error::new(
                 std::io::ErrorKind::Other,
-                output.to_string(),
+                output.to_string().as_str(),
             ));
         }
 
         Ok(())
     }
 
-    fn list_upgradable(&self) -> std::io::Result<Vec<crate::OutdateItem>> {
+    fn outdated(&self) -> crate::Result<Vec<crate::OutdateItem>> {
         let brew = std::process::Command::new("brew")
             .env("HOMEBREW_NO_ENV_HINTS", "1")
             .args(&["outdated", "--verbose"])
-            .output()?;
+            .output();
+        let brew = match brew {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
         if brew.status.success() == false {
             let output = String::from_utf8_lossy(&brew.stderr);
-            return Err(std::io::Error::new(
+            return Err(crate::Error::new(
                 std::io::ErrorKind::Other,
-                output.to_string(),
+                output.to_string().as_str(),
             ));
         }
 
