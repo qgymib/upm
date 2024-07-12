@@ -73,6 +73,12 @@ pub trait UpmBackend {
     /// # Returns
     /// A list of upgradable packages.
     fn outdated(&self) -> Result<Vec<OutdateItem>>;
+
+    /// Upgrade packages.
+    ///
+    /// # Returns
+    /// `Ok(())` if the upgrade is successful, otherwise `Err(std::io::Error)`.
+    fn upgrade(&self) -> Result<()>;
 }
 
 /// Check if the current user is root.

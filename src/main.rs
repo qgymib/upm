@@ -9,15 +9,14 @@ struct UpmArgs {
 
     #[arg(long, default_value_t = false, hide = true)]
     privilege: bool,
-
-    #[arg(long, hide = true)]
-    fifo: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
 enum ActionMode {
     Update(BackendName),
     Outdated(BackendName),
+    Upgrade(BackendName),
+
     Install(PackageName),
     Uninstall(PackageName),
 }
@@ -109,6 +108,14 @@ impl UpmInstance {
 
 type UmpBackendMap = std::collections::HashMap<String, UpmInstance>;
 
+/// Update packages using the package manager.
+///
+/// # Arguments
+/// + `backend` - The map of the package manager.
+/// + `name` - The name of the backend.
+///
+/// # Returns
+/// `Ok(())` if the update is successful, otherwise `Err(std::io::Error)`.
 fn do_update(backend: &mut UmpBackendMap, name: &BackendName) -> upm::Result<()> {
     if let Some(name) = &name.name {
         let backend = match backend.get_mut(name) {
@@ -172,6 +179,37 @@ fn do_outdate(backend: &mut UmpBackendMap, name: &BackendName) -> upm::Result<()
     Ok(())
 }
 
+fn do_upgrade(backend: &mut UmpBackendMap, name: &BackendName) -> upm::Result<()> {
+    if let Some(name) = &name.name {
+        let backend = match backend.get_mut(name) {
+            Some(v) => v,
+            None => {
+                return Err(upm::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("backend '{}' not found.", name).as_str(),
+                ));
+            }
+        };
+        let setup = backend.setup()?;
+        if setup.privilege.update {
+            upm::require_privilege()?;
+        }
+        backend.backend.upgrade()?;
+    } else {
+        let mut names = Vec::new();
+        for (name, _) in backend.iter_mut() {
+            names.push(BackendName {
+                name: Some(name.clone()),
+            });
+        }
+        for item in names {
+            do_upgrade(backend, &item)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     let args = UpmArgs::parse();
 
@@ -214,6 +252,7 @@ fn main() {
     let ret = match mode {
         ActionMode::Update(v) => do_update(&mut backend_map, &v),
         ActionMode::Outdated(v) => do_outdate(&mut backend_map, &v),
+        ActionMode::Upgrade(v) => do_upgrade(&mut backend_map, &v),
         _ => Err(upm::Error::new(
             std::io::ErrorKind::NotFound,
             "not implementation.",

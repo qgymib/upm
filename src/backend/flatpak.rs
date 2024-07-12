@@ -82,6 +82,30 @@ impl crate::UpmBackend for FlatpakBackend {
 
         Ok(ret)
     }
+
+    fn upgrade(&self) -> crate::Result<()> {
+        let flatpak = std::process::Command::new("flatpak")
+            .args(&["update", "--noninteractive"])
+            .output();
+        let flatpak = match flatpak {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+
+        if flatpak.status.success() == false {
+            let output = String::from_utf8_lossy(&flatpak.stderr);
+            return Err(crate::Error::new(
+                std::io::ErrorKind::Other,
+                output.to_string().as_str(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

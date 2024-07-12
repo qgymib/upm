@@ -103,4 +103,28 @@ impl crate::UpmBackend for BrewBackend {
 
         Ok(ret)
     }
+
+    fn upgrade(&self) -> crate::Result<()> {
+        let brew = std::process::Command::new("brew")
+            .args(&["upgrade"])
+            .output();
+        let brew = match brew {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if brew.status.success() == false {
+            let output = String::from_utf8_lossy(&brew.stderr);
+            return Err(crate::Error::new(
+                std::io::ErrorKind::Other,
+                output.to_string().as_str(),
+            ));
+        }
+
+        Ok(())
+    }
 }

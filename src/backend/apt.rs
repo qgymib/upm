@@ -123,4 +123,27 @@ impl crate::UpmBackend for AptBackend {
 
         Ok(ret)
     }
+
+    fn upgrade(&self) -> crate::Result<()> {
+        let apt = std::process::Command::new("apt-get")
+            .args(&["upgrade", "-y"])
+            .output();
+        let apt = match apt {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(crate::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string().as_str(),
+                ));
+            }
+        };
+        if apt.status.success() == false {
+            let output = String::from_utf8_lossy(&apt.stderr);
+            return Err(crate::Error::new(
+                std::io::ErrorKind::Other,
+                output.to_string().as_str(),
+            ));
+        }
+        Ok(())
+    }
 }
