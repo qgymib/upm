@@ -8,141 +8,89 @@ impl AptBackend {
 }
 
 impl crate::UpmBackend for AptBackend {
-    fn setup(&self) -> crate::Result<crate::BackendSetup> {
+    fn setup(&self) -> anyhow::Result<crate::BackendSetup> {
         let child = std::process::Command::new("apt-get")
             .arg("--version")
-            .output();
-        let child = match child {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+            .output()?;
         if child.status.success() == false {
-            return Err(crate::Error::new(
-                std::io::ErrorKind::NotFound,
-                "apt-get is not found.",
-            ));
+            return Ok(crate::BackendSetup::NotInstalled);
         }
 
-        let child = std::process::Command::new("apt").arg("--version").output();
-        let child = match child {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+        let child = std::process::Command::new("apt")
+            .arg("--version")
+            .output()?;
         if child.status.success() == false {
-            return Err(crate::Error::new(
-                std::io::ErrorKind::NotFound,
-                "apt is not found.",
-            ));
+            return Err(anyhow::anyhow!("apt is not found."));
         }
 
-        let setup = crate::BackendSetup {
-            privilege: crate::MethodPrivilege {
-                update: true,
-                outdate: false,
-            },
-        };
+        let setup = crate::BackendSetup::Installed(crate::MethodPrivilege {
+            update: true,
+            outdated: false,
+            upgrade: true,
+        });
         Ok(setup)
     }
 
-    fn update(&self) -> crate::Result<()> {
-        let apt = std::process::Command::new("apt-get").arg("update").output();
-        let apt = match apt {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+    fn update(&self) -> anyhow::Result<()> {
+        let apt = std::process::Command::new("apt-get")
+            .arg("update")
+            .output()?;
         if apt.status.success() == false {
             let output = String::from_utf8_lossy(&apt.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string()));
         }
         Ok(())
     }
 
-    fn outdated(&self) -> crate::Result<Vec<crate::OutdateItem>> {
+    fn outdated(&self) -> anyhow::Result<crate::rpc::OutdatedResult> {
         let apt = std::process::Command::new("apt")
             .env("LANG", "en_US.UTF-8")
             .env("LANGUAGE", "en_US")
             .args(&["list", "--upgradable"])
-            .output();
-        let apt = match apt {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+            .output()?;
         if apt.status.success() == false {
             let output = String::from_utf8_lossy(&apt.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string(),));
         }
 
         let output = String::from_utf8_lossy(&apt.stdout);
         let output = output.to_string();
+        println!("{}", output);
 
-        let mut lines: Vec<&str> = output.lines().collect();
-        lines.remove(0);
+        let lines: Vec<&str> = output.lines().collect();
+        let re =
+            regex::Regex::new(r"(\S+)/(\S+)\s+(\S+)\s+\(\S+)\s+[upgradable from: (\S+)\]").unwrap();
 
-        let mut ret = Vec::new();
+        let mut ret = crate::rpc::OutdatedResult { pkgs: Vec::new() };
         for line in lines {
-            let parts: Vec<&str> = line.split_whitespace().collect();
+            let Some(caps) = re.captures(line) else {
+                continue;
+            };
 
-            let package_name = parts[0];
-            let target_version = parts[1];
-            let current_version_part = line.split("upgradable from:").nth(1).unwrap().trim();
-            let current_version = current_version_part.trim_end_matches(']');
+            let package_name = caps.get(1).unwrap().as_str();
+            let ventor = caps.get(2).unwrap().as_str();
+            let current_version = caps.get(5).unwrap().as_str();
+            let target_version = caps.get(3).unwrap().as_str();
 
-            let item = crate::OutdateItem {
+            let item = crate::rpc::OutdateItem {
                 name: package_name.to_string(),
+                vendor: ventor.to_string(),
                 current_version: current_version.to_string(),
                 target_version: target_version.to_string(),
             };
-            ret.push(item);
+            ret.pkgs.push(item);
         }
 
         Ok(ret)
     }
 
-    fn upgrade(&self) -> crate::Result<()> {
+    fn upgrade(&self) -> anyhow::Result<()> {
         let apt = std::process::Command::new("apt-get")
             .args(&["upgrade", "-y"])
-            .output();
-        let apt = match apt {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+            .output()?;
         if apt.status.success() == false {
             let output = String::from_utf8_lossy(&apt.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string(),));
         }
         Ok(())
     }

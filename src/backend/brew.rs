@@ -8,121 +8,72 @@ impl BrewBackend {
 }
 
 impl crate::UpmBackend for BrewBackend {
-    fn setup(&self) -> crate::Result<crate::BackendSetup> {
-        let child = std::process::Command::new("brew").arg("--version").output();
-        let child = match child {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+    fn setup(&self) -> anyhow::Result<crate::BackendSetup> {
+        let child = std::process::Command::new("brew")
+            .arg("--version")
+            .output()?;
         if child.status.success() == false {
-            return Err(crate::Error::new(
-                std::io::ErrorKind::NotFound,
-                "brew is not found.",
-            ));
+            return Err(anyhow::anyhow!("brew is not found."));
         }
 
-        let setup = crate::BackendSetup {
-            privilege: crate::MethodPrivilege {
-                update: false,
-                outdate: false,
-            },
-        };
+        let setup = crate::BackendSetup::Installed(crate::MethodPrivilege {
+            update: false,
+            outdated: false,
+            upgrade: false,
+        });
         Ok(setup)
     }
 
-    fn update(&self) -> crate::Result<()> {
-        let brew = std::process::Command::new("brew").arg("update").output();
-        let brew = match brew {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+    fn update(&self) -> anyhow::Result<()> {
+        let brew = std::process::Command::new("brew").arg("update").output()?;
         if brew.status.success() == false {
             let output = String::from_utf8_lossy(&brew.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string()));
         }
 
         Ok(())
     }
 
-    fn outdated(&self) -> crate::Result<Vec<crate::OutdateItem>> {
+    fn outdated(&self) -> anyhow::Result<crate::rpc::OutdatedResult> {
         let brew = std::process::Command::new("brew")
             .env("HOMEBREW_NO_ENV_HINTS", "1")
-            .args(&["outdated", "--verbose"])
-            .output();
-        let brew = match brew {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+            .args(&["outdated", "--json=v2"])
+            .output()?;
         if brew.status.success() == false {
             let output = String::from_utf8_lossy(&brew.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string()));
         }
 
         let output = String::from_utf8_lossy(&brew.stdout).to_string();
-        let lines: Vec<&str> = output.lines().collect();
+        let output: serde_json::Value = serde_json::from_str(&output)?;
+        let formulae = &output["formulae"];
 
-        let mut ret = Vec::new();
-        let re = regex::Regex::new(r"^(\S+)\s+\((\S+)\)\s+<\s+(\S+)$").unwrap();
-        for line in lines {
-            let Some(caps) = re.captures(line) else {
-                continue;
-            };
-            let package_name = caps.get(1).unwrap().as_str();
-            let current_version = caps.get(2).unwrap().as_str();
-            let target_version = caps.get(3).unwrap().as_str();
+        let mut ret = crate::rpc::OutdatedResult { pkgs: Vec::new() };
+        for item in formulae.as_array().unwrap() {
+            let name = item["name"].as_str().unwrap();
+            let current_version = item["installed_versions"][0].as_str().unwrap();
+            let target_version = item["current_version"].as_str().unwrap();
 
-            let item = crate::OutdateItem {
-                name: package_name.to_string(),
+            let item = crate::rpc::OutdateItem {
+                name: name.to_string(),
+                vendor: "formulae".to_string(),
                 current_version: current_version.to_string(),
                 target_version: target_version.to_string(),
             };
 
-            ret.push(item);
+            ret.pkgs.push(item);
         }
 
         Ok(ret)
     }
 
-    fn upgrade(&self) -> crate::Result<()> {
+    fn upgrade(&self) -> anyhow::Result<()> {
         let brew = std::process::Command::new("brew")
             .args(&["upgrade"])
-            .output();
-        let brew = match brew {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(crate::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string().as_str(),
-                ));
-            }
-        };
+            .output()?;
         if brew.status.success() == false {
             let output = String::from_utf8_lossy(&brew.stderr);
-            return Err(crate::Error::new(
-                std::io::ErrorKind::Other,
-                output.to_string().as_str(),
-            ));
+            return Err(anyhow::anyhow!("{}", output.to_string()));
         }
 
         Ok(())

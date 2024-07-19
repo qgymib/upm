@@ -16,3 +16,5 @@ target/
 # vscode
 /.vscode
 
+# backup files
+*.drawio.bkp
