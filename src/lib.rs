@@ -1,5 +1,7 @@
 pub mod backend;
+pub mod host;
 pub mod rpc;
+pub mod worker;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MethodPrivilege {
@@ -44,6 +46,100 @@ pub trait UpmBackend {
     /// # Returns
     /// `Ok(())` if the upgrade is successful, otherwise `Err(std::io::Error)`.
     fn upgrade(&self) -> anyhow::Result<()>;
+}
+
+type UmpBackendHashMap = std::collections::HashMap<&'static str, Box<dyn UpmBackend>>;
+type UpmBackendSetupHashMap = std::collections::HashMap<String, BackendSetup>;
+
+pub struct WorkerRouter {
+    backends: UmpBackendHashMap,
+    info: UpmBackendSetupHashMap,
+}
+
+impl WorkerRouter {
+    pub fn new() -> Self {
+        use backend::*;
+
+        let mut backends = UmpBackendHashMap::new();
+        backends.insert("apt", Box::new(apt::AptBackend::new()));
+        backends.insert("brew", Box::new(brew::BrewBackend::new()));
+        backends.insert("flatpak", Box::new(flatpak::FlatpakBackend::new()));
+
+        let info = UpmBackendSetupHashMap::new();
+
+        Self {
+            backends: backends,
+            info: info,
+        }
+    }
+
+    fn info(&mut self, name: &str) -> anyhow::Result<BackendSetup> {
+        if let Some(info) = self.info.get(name) {
+            return Ok(info.clone());
+        }
+
+        let backend = match self.backends.get(&name) {
+            Some(v) => v,
+            None => {
+                return Err(anyhow::anyhow!("backend '{}' not found.", name));
+            }
+        };
+
+        let info = backend.setup()?;
+        self.info.insert(name.to_string(), info.clone());
+
+        Ok(info)
+    }
+}
+
+impl rpc::server::Router for WorkerRouter {
+    fn handshake(&self, _: rpc::HandeshakeParams) -> anyhow::Result<rpc::HandeshakeResult> {
+        Ok(rpc::HandeshakeResult {
+            privilige: nix::unistd::geteuid().is_root(),
+        })
+    }
+
+    fn update(&self, params: rpc::UpdateParams) -> anyhow::Result<rpc::UpdateResult> {
+        let backend = match self.backends.get(&params.backend_name.as_str()) {
+            Some(v) => v,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "backend '{}' not found.",
+                    params.backend_name
+                ));
+            }
+        };
+        backend.update()?;
+        Ok(rpc::UpdateResult {})
+    }
+
+    fn outdated(&self, params: rpc::OutdatedParams) -> anyhow::Result<rpc::OutdatedResult> {
+        let backend = match self.backends.get(&params.backend_name.as_str()) {
+            Some(v) => v,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "backend '{}' not found.",
+                    params.backend_name
+                ));
+            }
+        };
+        let ret = backend.outdated()?;
+        Ok(ret)
+    }
+
+    fn upgrade(&self, params: rpc::UpgradeParams) -> anyhow::Result<rpc::UpgradeResult> {
+        let backend = match self.backends.get(&params.backend_name.as_str()) {
+            Some(v) => v,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "backend '{}' not found.",
+                    params.backend_name
+                ));
+            }
+        };
+        backend.upgrade()?;
+        Ok(rpc::UpgradeResult {})
+    }
 }
 
 /// Check if the current user is root.
