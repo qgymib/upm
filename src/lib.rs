@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod gui;
 pub mod host;
 pub mod rpc;
 pub mod worker;

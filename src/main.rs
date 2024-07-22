@@ -1,4 +1,5 @@
-fn main() {
+#[allow(dead_code)]
+fn original_main() {
     use clap::Parser;
     let args = upm::host::UpmArgs::parse();
 
@@ -14,4 +15,9 @@ fn main() {
         eprintln!("{}", e);
         std::process::exit(1);
     }
+}
+
+fn main() -> anyhow::Result<()> {
+    upm::gui::app()?;
+    Ok(())
 }
