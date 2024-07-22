@@ -18,6 +18,6 @@ fn original_main() {
 }
 
 fn main() -> anyhow::Result<()> {
-    upm::gui::app()?;
+    upm::tui::app()?;
     Ok(())
 }

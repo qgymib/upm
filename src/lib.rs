@@ -1,7 +1,7 @@
 pub mod backend;
-pub mod gui;
 pub mod host;
 pub mod rpc;
+pub mod tui;
 pub mod worker;
 
 #[derive(Debug, Clone, Copy)]

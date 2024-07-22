@@ -1,3 +1,5 @@
+mod search_tab;
+
 use ratatui::{
     crossterm::{
         event::{self, Event, KeyCode},
@@ -6,6 +8,28 @@ use ratatui::{
     prelude::*,
     widgets::*,
 };
+
+#[derive(Debug)]
+pub struct App {
+    activate_tab: Tab,
+    search_tab: search_tab::SearchTab,
+}
+
+#[derive(Debug, Default)]
+enum Tab {
+    #[default]
+    Search,
+    InstallationSummary,
+}
+
+impl App {
+    pub fn new() -> Self {
+        Self {
+            activate_tab: Tab::Search,
+            search_tab: search_tab::SearchTab::new(),
+        }
+    }
+}
 
 pub fn app() -> anyhow::Result<()> {
     std::io::stdout().execute(ratatui::crossterm::terminal::EnterAlternateScreen)?;
@@ -36,7 +60,7 @@ fn handle_events() -> anyhow::Result<bool> {
 }
 
 /// Draw the UI of the application.
-/// 
+///
 /// # Arguments
 /// * `frame` - The frame to draw the UI on.
 fn ui(frame: &mut ratatui::Frame) {
